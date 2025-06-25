@@ -1,0 +1,77 @@
+# The image which installs podman from apt,
+# this image is used to provide default configuration files.
+FROM ubuntu:24.04 AS podman-apt
+
+SHELL ["/bin/bash", "-c"]
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN apt update && apt-get install -y --no-install-recommends podman
+
+# The final image
+FROM ubuntu:24.04
+
+SHELL ["/bin/bash", "-c"]
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# Podman dependencies
+# Reference: https://podman.io/docs/installation#build-and-run-dependencies
+RUN apt update && apt-get install -y --no-install-recommends \
+    btrfs-progs \
+    gcc \
+    git \
+    golang-go \
+    go-md2man \
+    iptables \
+    libassuan-dev \
+    libbtrfs-dev \
+    libc6-dev \
+    libdevmapper-dev \
+    libglib2.0-dev \
+    libgpgme-dev \
+    libgpg-error-dev \
+    libprotobuf-dev \
+    libprotobuf-c-dev \
+    libseccomp-dev \
+    libselinux1-dev \
+    libsystemd-dev \
+    make \
+    netavark \
+    passt \
+    pkg-config \
+    runc \
+    uidmap
+
+# Basic development tools
+RUN apt-get install -y --no-install-recommends \
+    # Github https support
+    ca-certificates \
+    strace \
+    vim
+
+WORKDIR /root
+
+# Install conmon, which is required by Podman but not installed by default.
+# Reference: https://podman.io/docs/installation#conmon
+RUN git clone https://github.com/containers/conmon && \
+    cd conmon && \
+    export GOCACHE="$(mktemp -d)" && \
+    make && \
+    make podman
+
+# Build podman
+RUN git clone https://github.com/containers/podman && \
+    cd podman && \
+    make BUILDTAGS="exclude_graphdriver_btrfs exclude_graphdriver_devicemapper" PREFIX=/usr && \
+    env PATH=$PATH make install PREFIX=/usr
+
+COPY --from=podman-apt /etc/containers /etc/containers
+COPY --from=podman-apt /usr/share/containers /usr/share/containers
+
+COPY init_podman_conf.sh /root/init_podman_conf.sh
+RUN /root/init_podman_conf.sh
+
+VOLUME ["/root/podman_env"]
+
+WORKDIR /root/podman_env
